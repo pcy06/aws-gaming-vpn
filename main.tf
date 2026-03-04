@@ -26,8 +26,8 @@ provider "aws" {
 }
 
 locals {
-  wireguard_dir       = "${path.root}/generated"
-  client_config_path  = "${local.wireguard_dir}/gaming-vpn.conf"
+  wireguard_dir      = "${path.root}/generated"
+  client_config_path = "${local.wireguard_dir}/gaming-vpn.conf"
 }
 
 data "aws_availability_zones" "available" {
@@ -186,6 +186,8 @@ resource "aws_globalaccelerator_listener" "wireguard" {
 resource "aws_globalaccelerator_endpoint_group" "wireguard" {
   listener_arn          = aws_globalaccelerator_listener.wireguard.id
   endpoint_group_region = var.aws_region
+  health_check_protocol = "TCP"
+  health_check_port     = 22
 
   endpoint_configuration {
     endpoint_id = aws_instance.wireguard.id
@@ -196,13 +198,13 @@ resource "aws_globalaccelerator_endpoint_group" "wireguard" {
 resource "local_file" "gaming_vpn_conf" {
   filename = local.client_config_path
   content = templatefile("${path.module}/templates/gaming-vpn.conf.tftpl", {
-    client_private_key    = wireguard_asymmetric_key.client.private_key
-    server_public_key     = wireguard_asymmetric_key.server.public_key
-    endpoint              = "${aws_globalaccelerator_accelerator.vpn.dns_name}:${var.wireguard_port}"
-    client_address        = "${cidrhost(var.vpn_cidr, 2)}/32"
-    dns_servers           = var.client_dns_servers
-    allowed_ips           = var.client_allowed_ips
-    persistent_keepalive  = var.persistent_keepalive
+    client_private_key   = wireguard_asymmetric_key.client.private_key
+    server_public_key    = wireguard_asymmetric_key.server.public_key
+    endpoint             = "${aws_globalaccelerator_accelerator.vpn.dns_name}:${var.wireguard_port}"
+    client_address       = "${cidrhost(var.vpn_cidr, 2)}/32"
+    dns_servers          = var.client_dns_servers
+    allowed_ips          = var.client_allowed_ips
+    persistent_keepalive = var.persistent_keepalive
   })
 
   depends_on = [
