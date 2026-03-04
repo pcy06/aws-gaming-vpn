@@ -186,6 +186,8 @@ resource "aws_globalaccelerator_listener" "wireguard" {
 resource "aws_globalaccelerator_endpoint_group" "wireguard" {
   listener_arn          = aws_globalaccelerator_listener.wireguard.id
   endpoint_group_region = var.aws_region
+  health_check_protocol = "TCP"
+  health_check_port     = 22
 
   endpoint_configuration {
     endpoint_id = aws_instance.wireguard.id
