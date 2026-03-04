@@ -1,0 +1,36 @@
+#!/bin/bash
+set -euxo pipefail
+
+yum update -y
+yum install -y amazon-linux-extras
+amazon-linux-extras install -y epel
+yum install -y wireguard-tools iptables-services
+
+mkdir -p /etc/wireguard
+chmod 700 /etc/wireguard
+
+cat > /etc/wireguard/wg0.conf <<WGCONF
+[Interface]
+Address = ${server_vpn_ip}/24
+ListenPort = ${wireguard_port}
+PrivateKey = ${server_private_key}
+SaveConfig = true
+
+[Peer]
+PublicKey = ${client_public_key}
+AllowedIPs = ${client_vpn_ip}/32
+WGCONF
+
+chmod 600 /etc/wireguard/wg0.conf
+
+sysctl -w net.ipv4.ip_forward=1
+sysctl -w net.ipv6.conf.all.forwarding=1
+grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
+grep -q '^net.ipv6.conf.all.forwarding=1' /etc/sysctl.conf || echo 'net.ipv6.conf.all.forwarding=1' >> /etc/sysctl.conf
+
+PRIMARY_IF=$(ip -o -4 route show to default | awk '{print $5}')
+iptables -t nat -A POSTROUTING -s ${vpn_cidr} -o "$PRIMARY_IF" -j MASQUERADE
+service iptables save
+
+systemctl enable wg-quick@wg0
+systemctl start wg-quick@wg0
