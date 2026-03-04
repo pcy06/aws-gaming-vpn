@@ -14,6 +14,10 @@ terraform {
       source  = "hashicorp/null"
       version = "~> 3.2"
     }
+    wireguard = {
+      source  = "OJFord/wireguard"
+      version = "~> 0.4"
+    }
   }
 }
 
@@ -22,13 +26,8 @@ provider "aws" {
 }
 
 locals {
-  wireguard_dir            = "${path.root}/generated"
-  server_private_key_path  = "${local.wireguard_dir}/server_private.key"
-  server_public_key_path   = "${local.wireguard_dir}/server_public.key"
-  client_private_key_path  = "${local.wireguard_dir}/client_private.key"
-  client_public_key_path   = "${local.wireguard_dir}/client_public.key"
-  server_config_path       = "${local.wireguard_dir}/wg0.conf"
-  client_config_path       = "${local.wireguard_dir}/gaming-vpn.conf"
+  wireguard_dir       = "${path.root}/generated"
+  client_config_path  = "${local.wireguard_dir}/gaming-vpn.conf"
 }
 
 data "aws_availability_zones" "available" {
@@ -39,21 +38,19 @@ locals {
   target_az = contains(data.aws_availability_zones.available.names, var.local_zone_name) ? var.local_zone_name : data.aws_availability_zones.available.names[0]
 }
 
-resource "null_resource" "generate_wireguard_keys" {
-  triggers = {
-    key_version = var.key_rotation_token
-  }
-
+resource "null_resource" "prepare_local_output_dir" {
   provisioner "local-exec" {
-    command = <<-EOT
-      set -eu
-      mkdir -p "${local.wireguard_dir}"
-      wg genkey | tee "${local.server_private_key_path}" | wg pubkey > "${local.server_public_key_path}"
-      wg genkey | tee "${local.client_private_key_path}" | wg pubkey > "${local.client_public_key_path}"
-      chmod 600 "${local.wireguard_dir}"/*.key
-    EOT
+    command     = "mkdir -p ${local.wireguard_dir}"
     interpreter = ["/bin/bash", "-c"]
   }
+}
+
+resource "wireguard_asymmetric_key" "server" {
+  bind = var.key_rotation_token
+}
+
+resource "wireguard_asymmetric_key" "client" {
+  bind = var.key_rotation_token
 }
 
 resource "aws_vpc" "vpn" {
@@ -148,16 +145,13 @@ resource "aws_instance" "wireguard" {
   associate_public_ip_address = true
 
   user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {
-    wireguard_port            = var.wireguard_port
-    server_private_key_base64 = base64encode(file(local.server_private_key_path))
-    client_public_key         = trimspace(file(local.client_public_key_path))
-    client_allowed_ips        = var.client_allowed_ips
-    vpn_cidr                  = var.vpn_cidr
-    server_vpn_ip             = cidrhost(var.vpn_cidr, 1)
-    client_vpn_ip             = cidrhost(var.vpn_cidr, 2)
+    wireguard_port     = var.wireguard_port
+    server_private_key = wireguard_asymmetric_key.server.private_key
+    client_public_key  = wireguard_asymmetric_key.client.public_key
+    vpn_cidr           = var.vpn_cidr
+    server_vpn_ip      = cidrhost(var.vpn_cidr, 1)
+    client_vpn_ip      = cidrhost(var.vpn_cidr, 2)
   })
-
-  depends_on = [null_resource.generate_wireguard_keys]
 
   tags = {
     Name = "${var.name_prefix}-wireguard"
@@ -202,17 +196,17 @@ resource "aws_globalaccelerator_endpoint_group" "wireguard" {
 resource "local_file" "gaming_vpn_conf" {
   filename = local.client_config_path
   content = templatefile("${path.module}/templates/gaming-vpn.conf.tftpl", {
-    client_private_key = trimspace(file(local.client_private_key_path))
-    server_public_key  = trimspace(file(local.server_public_key_path))
-    endpoint           = "${aws_globalaccelerator_accelerator.vpn.dns_name}:${var.wireguard_port}"
-    client_address     = "${cidrhost(var.vpn_cidr, 2)}/32"
-    dns_servers        = var.client_dns_servers
-    allowed_ips        = var.client_allowed_ips
-    persistent_keepalive = var.persistent_keepalive
+    client_private_key    = wireguard_asymmetric_key.client.private_key
+    server_public_key     = wireguard_asymmetric_key.server.public_key
+    endpoint              = "${aws_globalaccelerator_accelerator.vpn.dns_name}:${var.wireguard_port}"
+    client_address        = "${cidrhost(var.vpn_cidr, 2)}/32"
+    dns_servers           = var.client_dns_servers
+    allowed_ips           = var.client_allowed_ips
+    persistent_keepalive  = var.persistent_keepalive
   })
 
   depends_on = [
-    null_resource.generate_wireguard_keys,
+    null_resource.prepare_local_output_dir,
     aws_globalaccelerator_endpoint_group.wireguard
   ]
 }

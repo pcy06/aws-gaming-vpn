@@ -13,7 +13,7 @@ cat > /etc/wireguard/wg0.conf <<WGCONF
 [Interface]
 Address = ${server_vpn_ip}/24
 ListenPort = ${wireguard_port}
-PrivateKey = $(echo '${server_private_key_base64}' | base64 -d)
+PrivateKey = ${server_private_key}
 SaveConfig = true
 
 [Peer]
