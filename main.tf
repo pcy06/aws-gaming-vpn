@@ -35,7 +35,11 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  target_az = contains(data.aws_availability_zones.available.names, var.local_zone_name) ? var.local_zone_name : data.aws_availability_zones.available.names[0]
+  target_az = data.aws_availability_zones.available.names[0]
+}
+
+data "aws_availability_zone" "target" {
+  name = local.target_az
 }
 
 resource "null_resource" "prepare_local_output_dir" {
@@ -133,12 +137,12 @@ resource "aws_security_group" "wireguard" {
   }
 }
 
-data "aws_ssm_parameter" "amzn2_ami" {
-  name = "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
+data "aws_ssm_parameter" "al2023_ami" {
+  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
 }
 
 resource "aws_instance" "wireguard" {
-  ami                         = data.aws_ssm_parameter.amzn2_ami.value
+  ami                         = data.aws_ssm_parameter.al2023_ami.value
   instance_type               = "t3.micro"
   subnet_id                   = aws_subnet.vpn.id
   vpc_security_group_ids      = [aws_security_group.wireguard.id]
@@ -159,8 +163,9 @@ resource "aws_instance" "wireguard" {
 }
 
 resource "aws_eip" "wireguard" {
-  domain   = "vpc"
-  instance = aws_instance.wireguard.id
+  domain               = "vpc"
+  instance             = aws_instance.wireguard.id
+  network_border_group = data.aws_availability_zone.target.network_border_group
 
   tags = {
     Name = "${var.name_prefix}-wireguard-eip"
@@ -190,8 +195,9 @@ resource "aws_globalaccelerator_endpoint_group" "wireguard" {
   health_check_port     = 22
 
   endpoint_configuration {
-    endpoint_id = aws_instance.wireguard.id
-    weight      = 128
+    endpoint_id                     = aws_instance.wireguard.id
+    weight                          = 128
+    client_ip_preservation_enabled  = true
   }
 }
 

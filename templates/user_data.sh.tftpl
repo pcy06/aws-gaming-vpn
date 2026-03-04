@@ -1,13 +1,13 @@
 #!/bin/bash
 set -euxo pipefail
 
-yum update -y
-yum install -y amazon-linux-extras
-amazon-linux-extras install -y epel
-yum install -y wireguard-tools iptables-services
+dnf -y update
+dnf -y install wireguard-tools iptables
 
 mkdir -p /etc/wireguard
 chmod 700 /etc/wireguard
+
+PRIMARY_IF=$(ip -o -4 route show to default | awk '{print $5}')
 
 cat > /etc/wireguard/wg0.conf <<WGCONF
 [Interface]
@@ -15,6 +15,8 @@ Address = ${server_vpn_ip}/24
 ListenPort = ${wireguard_port}
 PrivateKey = ${server_private_key}
 SaveConfig = true
+PostUp = iptables -t nat -A POSTROUTING -s ${vpn_cidr} -o $PRIMARY_IF -j MASQUERADE
+PostDown = iptables -t nat -D POSTROUTING -s ${vpn_cidr} -o $PRIMARY_IF -j MASQUERADE
 
 [Peer]
 PublicKey = ${client_public_key}
@@ -28,9 +30,9 @@ sysctl -w net.ipv6.conf.all.forwarding=1
 grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
 grep -q '^net.ipv6.conf.all.forwarding=1' /etc/sysctl.conf || echo 'net.ipv6.conf.all.forwarding=1' >> /etc/sysctl.conf
 
-PRIMARY_IF=$(ip -o -4 route show to default | awk '{print $5}')
-iptables -t nat -A POSTROUTING -s ${vpn_cidr} -o "$PRIMARY_IF" -j MASQUERADE
-service iptables save
+# Fail early if the kernel does not support WireGuard.
+ip link add wg-check type wireguard
+ip link delete wg-check
 
 systemctl enable wg-quick@wg0
 systemctl start wg-quick@wg0

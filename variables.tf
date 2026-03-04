@@ -1,13 +1,7 @@
 variable "aws_region" {
   description = "AWS region for resources and Global Accelerator endpoint group."
   type        = string
-  default     = "us-west-2"
-}
-
-variable "local_zone_name" {
-  description = "Preferred Local Zone/AZ name (e.g. us-west-2-lax-1a). Falls back to first available AZ if unavailable."
-  type        = string
-  default     = "us-west-2-lax-1a"
+  default     = "us-west-1"
 }
 
 variable "name_prefix" {
